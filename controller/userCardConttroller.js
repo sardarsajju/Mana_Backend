@@ -1,6 +1,5 @@
 const pool = require('../dboperations');
 
-// GET /card/user/:user_id
 exports.getUserCard = async (req, res) => {
   try {
     const { user_id } = req.params;
@@ -24,15 +23,12 @@ exports.getUserCard = async (req, res) => {
       [user_id]
     );
 
-    // ✅ NO CARD CASE
     if (cards.length === 0) {
       return res.status(404).json({
         message: "No card found for this user",
         cards: []
       });
     }
-
-    // ✅ CARD FOUND
     res.status(200).json({
       message: "User card details fetched successfully",
       cards

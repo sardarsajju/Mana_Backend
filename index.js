@@ -12,6 +12,7 @@ const bankregister=require('./Route/BankingregisterRoute');
 const accountDetails=require('./Route/AccountDetailsRoute');
 const admin=require('./Route/AdminCardRoute');
 const usercard=require('./Route/userCradRoute');
+const kyc=require('./Route/kucRoute');
 
 app.use(express.json());
 app.use(cors());
@@ -27,6 +28,7 @@ app.use('/api/bank',bankregister)
 app.use('/api/account',accountDetails);
 app.use('/api/admin',admin);
 app.use('/api/usercard',usercard);
+app.use('/api/kyc',kyc);
 
 
 app.listen(port, () => {
