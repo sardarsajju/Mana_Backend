@@ -248,3 +248,32 @@ exports.unassignUser = (req, res) => {
   });
 };
 
+/* =========================
+   GET SINGLE PROJECT BY ID
+========================= */
+exports.getProjectById = (req, res) => {
+  const { project_id } = req.params;
+
+  const sql = `
+    SELECT 
+      p.*, 
+      o.org_name,
+      o.org_id
+    FROM projects p
+    JOIN organizations o ON o.org_id = p.org_id
+    WHERE p.project_id = ?
+  `;
+
+  db.query(sql, [project_id], (err, rows) => {
+    if (err) {
+      console.error("Error fetching project:", err);
+      return res.status(500).json({ error: "Database error", details: err.sqlMessage });
+    }
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "Project not found" });
+    }
+    
+    res.json(rows[0]);
+  });
+};

@@ -401,14 +401,7 @@ exports.raiseBug = (req, res) => {
   );
 };
 
-/* =========================
-   GET ALL BUGS (DEVELOPER)
-   filtered by organization
-========================= */
-/* =========================
-   GET ALL BUGS (DEVELOPER)
-   filtered by organization
-========================= */
+
 exports.getAllBugs = (req, res) => {
   const devId = req.query.dev;
   const orgId = req.query.org;
@@ -416,29 +409,29 @@ exports.getAllBugs = (req, res) => {
 
   console.log("Getting bugs for developer:", devId, "filter:", filter, "org:", orgId);
 
+  // Base query to get all bugs for projects where this developer is assigned
   let sql = `
     SELECT 
-      b.*,
-      u.name AS tester_name,
-      p.project_name,
+      b.*, 
+      u.name AS tester_name, 
+      p.project_name, 
       o.org_name,
-      COALESCE(br.is_read, 0) AS is_read
-    FROM bugs b
-    JOIN users u ON u.user_id = b.created_by
-    JOIN projects p ON p.project_id = b.project_id
-    JOIN organizations o ON o.org_id = p.org_id
-    JOIN project_users pu 
-      ON pu.project_id = p.project_id
-      AND pu.user_id = ?
-      AND pu.role = 'developer'
-    LEFT JOIN bug_reads br 
-      ON br.bug_id = b.bug_id 
-      AND br.user_id = ?
+      COALESCE(br.is_read, 0) AS is_read,
+      CASE 
+        WHEN b.assigned_to IS NULL THEN 'All Developers'
+        ELSE (SELECT name FROM users WHERE user_id = b.assigned_to)
+      END AS assigned_to_name
+    FROM bugs b 
+    JOIN users u ON u.user_id = b.created_by 
+    JOIN projects p ON p.project_id = b.project_id 
+    JOIN organizations o ON o.org_id = p.org_id 
+    JOIN project_users pu ON pu.project_id = p.project_id 
+                          AND pu.user_id = ? 
+                          AND pu.role = 'developer' 
+    LEFT JOIN bug_reads br ON br.bug_id = b.bug_id AND br.user_id = ?
   `;
 
   let params = [devId, devId];
-
-  // ✅ Start WHERE clause
   let whereConditions = [];
 
   // Filter by organization if provided
@@ -447,13 +440,13 @@ exports.getAllBugs = (req, res) => {
     params.push(orgId);
   }
 
-  // ✅ MAIN FIX: Filter bugs based on assignment
+  // Filter bugs based on assignment
   if (filter === "assigned") {
     // Show only bugs specifically assigned to this developer
     whereConditions.push("b.assigned_to = ?");
     params.push(devId);
-  } else {
-    // Show bugs assigned to this developer OR assigned to all (NULL)
+  } else if (filter === "all" || !filter) {
+    // Show bugs assigned to this developer OR assigned to all developers (NULL)
     whereConditions.push("(b.assigned_to = ? OR b.assigned_to IS NULL)");
     params.push(devId);
   }
@@ -473,19 +466,19 @@ exports.getAllBugs = (req, res) => {
       console.error("Error fetching bugs:", err);
       return res.status(500).json({ error: "Database error", details: err.message });
     }
-    
+
     console.log(`Found ${data.length} bugs for developer ${devId}`);
     
-    // ✅ Debug: Log assignment info
+    // Debug: Log assignment info
     data.forEach(bug => {
       console.log(`Bug #${bug.bug_id}: ${bug.title}`);
       console.log(`  Assigned to: ${bug.assigned_to || 'ALL DEVELOPERS'}`);
+      console.log(`  Assigned to name: ${bug.assigned_to_name}`);
     });
-    
+
     res.json(data);
   });
 };
-
 /* =========================
    GET TESTER BUGS
 ========================= */
@@ -866,34 +859,76 @@ exports.getAllOrganizationsForSuperAdmin = (req, res) => {
   });
 };
 
-// /* =========================
-//    DELETE ORGANIZATION
-// ========================= */
-// exports.deleteOrganization = (req, res) => {
-//   const orgId = req.params.org_id;
 
-//   const sql = `DELETE FROM organizations WHERE org_id = ?`;
+/* =========================
+   GET SINGLE BUG BY ID (FOR ADMIN)
+========================= */
+exports.getBugById = (req, res) => {
+  const { bug_id } = req.params;
 
-//   db.query(sql, [orgId], (err, result) => {
-//     if (err) {
-//       console.error("❌ Database error:", err);
-//       return res.status(500).json({ error: "Database error" });
-//     }
+  const sql = `
+    SELECT 
+      b.*,
+      u.name AS tester_name,
+      u.email AS tester_email,
+      p.project_name,
+      p.project_id,
+      o.org_name,
+      o.org_id,
+      dev.name AS developer_name,
+      dev.email AS developer_email
+    FROM bugs b
+    JOIN users u ON u.user_id = b.created_by
+    JOIN projects p ON p.project_id = b.project_id
+    JOIN organizations o ON o.org_id = p.org_id
+    LEFT JOIN users dev ON dev.user_id = b.assigned_to
+    WHERE b.bug_id = ?
+  `;
+
+  db.query(sql, [bug_id], (err, rows) => {
+    if (err) {
+      console.error("Error fetching bug:", err);
+      return res.status(500).json({ error: "Database error", details: err.sqlMessage });
+    }
     
-//     if (result.affectedRows === 0) {
-//       return res.status(404).json({ error: "Organization not found" });
-//     }
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "Bug not found" });
+    }
     
-//     res.json({ message: "Organization deleted successfully" });
-//   });
-// };
+    res.json(rows[0]);
+  });
+};
 
-// module.exports = {
-//   createOrganization,
-//   getOrganizationsByAdmin,
-//   getOrganizationById,              // ✅ NEW - Important for register page
-//   selectOrganization,
-//   getAllOrganizationsForSuperAdmin,
-//   deleteOrganization
-// };
+/* =========================
+   GET BUGS BY PROJECT (FOR ADMIN)
+========================= */
+exports.getBugsByProject = (req, res) => {
+  const { orgId, projectId } = req.params;
 
+  const sql = `
+    SELECT 
+      b.*,
+      u.name AS tester_name,
+      u.email AS tester_email,
+      p.project_name,
+      o.org_name,
+      dev.name AS developer_name,
+      dev.email AS developer_email
+    FROM bugs b
+    JOIN users u ON u.user_id = b.created_by
+    JOIN projects p ON p.project_id = b.project_id
+    JOIN organizations o ON o.org_id = p.org_id
+    LEFT JOIN users dev ON dev.user_id = b.assigned_to
+    WHERE p.org_id = ? AND p.project_id = ?
+    ORDER BY b.created_at DESC
+  `;
+
+  db.query(sql, [orgId, projectId], (err, rows) => {
+    if (err) {
+      console.error("Error fetching bugs:", err);
+      return res.status(500).json({ error: "Database error", details: err.sqlMessage });
+    }
+    
+    res.json(rows);
+  });
+};
